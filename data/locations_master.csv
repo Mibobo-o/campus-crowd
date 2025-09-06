@@ -1,1 +1,5 @@
 id,name,type,lat,lon,capacity
+LIB-1A,Reading Room 1F-A,reading_room,37.5008,127.0009,140
+CAF-MAIN,Main Cafeteria,cafeteria,37.5015,127.0001,300
+BLD-9-902,Building 9 Room 902,lecture,37.5023,126.9994,120
+
