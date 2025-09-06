@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Campus Crowd (Demo)</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>body{margin:0;font-family:sans-serif} #map{height:100vh}</style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // 1) 지도 기본
+    const map = L.map('map').setView([37.501, 127.0], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
+
+    // 2) 색상 규칙
+    function levelFromRate(r){
+      if (r < 0.3) return 0;
+      if (r < 0.6) return 1;
+      if (r < 0.8) return 2;
+      return 3;
+    }
+    const COLORS = ['#2ecc71','#f1c40f','#e67e22','#e74c3c'];
+
+    // 3) CSV 읽기(아주 단순 파서)
+    async function readCSV(path){
+      const text = await fetch(path).then(r=>r.text());
+      const [header, ...lines] = text.trim().split('\n');
+      const cols = header.split(',');
+      return lines.map(line=>{
+        const vals = line.split(',');
+        const row = {};
+        cols.forEach((c,i)=> row[c] = vals[i]);
+        return row;
+      });
+    }
+
+    // 4) 최신 시각의 measurements만 골라 마커 색상 결정
+    async function main(){
+      // ★ 데모 편의: /app/frontend/data 폴더에 CSV 복사본을 둡니다.
+      const locations = await readCSV('./data/locations_master.csv');
+      const meas = await readCSV('./data/measurements.csv');
+
+      // 가장 최신 timestamp 찾기
+      const latest = meas.reduce((a,b)=> a.timestamp > b.timestamp ? a : b).timestamp;
+      const latestRows = meas.filter(r => r.timestamp === latest);
+
+      // location_id → occupancy_rate 맵
+      const rateMap = {};
+      latestRows.forEach(r => rateMap[r.location_id] = parseFloat(r.occupancy_rate));
+
+      // 마커 찍기
+      locations.forEach(loc=>{
+        const lat = parseFloat(loc.lat), lon = parseFloat(loc.lon);
+        if (isNaN(lat) || isNaN(lon)) return;
+        const rate = rateMap[loc.id] ?? 0;
+        const lv = levelFromRate(rate);
+        const color = COLORS[lv];
+
+        const marker = L.circleMarker([lat, lon], {
+          radius: 7, color, fillColor: color, fillOpacity: 0.9, weight: 1
+        }).addTo(map);
+
+        marker.bindPopup(
+          `<b>${loc.name}</b><br/>type: ${loc.type}<br/>capacity: ${loc.capacity}<br/>` +
+          `now: ${(rate*100).toFixed(0)}% (level ${lv})<br/><small>${latest}</small>`
+        );
+      });
+    }
+
+    main();
+  </script>
+</body>
+</html>
