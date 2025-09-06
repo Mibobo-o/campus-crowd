@@ -1,3 +1,8 @@
+[![Deploy frontend to GitHub Pages](https://github.com/Mibobo-o/campus-crowd/actions/workflows/gh-pages.yml/badge.svg)](https://github.com/Mibobo-o/campus-crowd/actions/workflows/gh-pages.yml)
+
+**Live Demo:** https://Mibobo-o.github.io/campus-crowd/
+
+
 # Campus Crowd
 캠퍼스 혼잡도 예측 지도 프로젝트
 
