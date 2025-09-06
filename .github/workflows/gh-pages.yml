@@ -1,0 +1,40 @@
+name: Deploy frontend to GitHub Pages
+
+on:
+  push:
+    branches: [ "main" ]   # main에 푸시될 때 자동 배포
+  workflow_dispatch:        # 수동 실행도 가능
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 정적 사이트 배포 설정
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      # app/frontend 폴더를 아티팩트로 업로드
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "app/frontend"
+
+      # 실제 배포
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
