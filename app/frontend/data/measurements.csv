@@ -1,0 +1,6 @@
+timestamp,location_id,occupancy_rate,occupancy_level,weekday,weather,source
+2025-09-01 11:00:00,LIB-1A,0.72,2,Monday,sunny,sim
+2025-09-01 11:00:00,CAF-MAIN,0.55,1,Monday,sunny,sim
+2025-09-01 11:00:00,BLD-9-902,0.30,1,Monday,sunny,sim
+2025-09-01 11:30:00,LIB-1A,0.80,3,Monday,sunny,sim
+2025-09-01 11:30:00,CAF-MAIN,0.95,3,Monday,sunny,sim
