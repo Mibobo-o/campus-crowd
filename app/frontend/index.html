@@ -4,18 +4,45 @@
   <meta charset="utf-8" />
   <title>Campus Crowd (Demo)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-  <style>body{margin:0;font-family:sans-serif} #map{height:100vh}</style>
+  <style>
+    :root{ --lv0:#2ecc71; --lv1:#f1c40f; --lv2:#e67e22; --lv3:#e74c3c; }
+    body{ margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #topbar{ height:48px; display:flex; align-items:center; padding:0 12px; border-bottom:1px solid #eee; }
+    #topbar h3{ margin:0; font-size:16px; font-weight:600; }
+    #map{ height:calc(100vh - 48px); }
+
+    /* 범례 스타일 */
+    .legend{
+      background: #fff; padding:10px 12px; border-radius:10px;
+      box-shadow:0 2px 8px rgba(0,0,0,0.15); font-size:13px; line-height:1.5;
+    }
+    .legend .row{ display:flex; align-items:center; gap:8px; margin:4px 0; }
+    .dot{ width:12px; height:12px; border-radius:50%; display:inline-block; }
+    .lv0{ background:var(--lv0); } .lv1{ background:var(--lv1); }
+    .lv2{ background:var(--lv2); } .lv3{ background:var(--lv3); }
+
+    /* 팝업 안의 강조 */
+    .badge{
+      display:inline-block; font-size:12px; padding:2px 6px; border-radius:999px; color:#fff;
+    }
+    .b0{ background:var(--lv0);} .b1{ background:var(--lv1); color:#000;}
+    .b2{ background:var(--lv2);} .b3{ background:var(--lv3);}
+    .meta{ color:#666; font-size:12px; }
+  </style>
 </head>
 <body>
+  <div id="topbar">
+    <h3>Campus Crowd — 현재 혼잡도 지도</h3>
+  </div>
   <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
-    // 1) 지도 기본
+    // 0) 지도 기본
     const map = L.map('map').setView([37.501, 127.0], 16);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
-    // 2) 색상 규칙
+    // 1) 색상/레벨 규칙
     function levelFromRate(r){
       if (r < 0.3) return 0;
       if (r < 0.6) return 1;
@@ -24,12 +51,19 @@
     }
     const COLORS = ['#2ecc71','#f1c40f','#e67e22','#e74c3c'];
 
-    // 3) CSV 읽기(아주 단순 파서)
+    // 혼잡비율에 따라 마커 크기(시각 가독성↑)
+    function radiusFromRate(r){
+      // 최소 6px, 최대 14px 정도
+      return 6 + Math.round(r * 8);
+    }
+
+    // 2) CSV 읽기(아주 단순 파서)
     async function readCSV(path){
       const text = await fetch(path).then(r=>r.text());
-      const [header, ...lines] = text.trim().split('\n');
-      const cols = header.split(',');
-      return lines.map(line=>{
+      const lines = text.trim().split(/\r?\n/);
+      const cols = lines[0].split(',');
+      return lines.slice(1).map(line=>{
+        // 쉼표가 이름에 들어가진 않는 전제(있으면 따옴표 처리 필요)
         const vals = line.split(',');
         const row = {};
         cols.forEach((c,i)=> row[c] = vals[i]);
@@ -37,36 +71,81 @@
       });
     }
 
-    // 4) 최신 시각의 measurements만 골라 마커 색상 결정
+    // 3) 범례 추가
+    const legend = L.control({position:'bottomright'});
+    legend.onAdd = function(){
+      const div = L.DomUtil.create('div','legend');
+      div.innerHTML = `
+        <div style="font-weight:600;margin-bottom:4px;">Occupancy Level</div>
+        <div class="row"><span class="dot lv0"></span><span>&lt; 30% (Lv 0)</span></div>
+        <div class="row"><span class="dot lv1"></span><span>30–60% (Lv 1)</span></div>
+        <div class="row"><span class="dot lv2"></span><span>60–80% (Lv 2)</span></div>
+        <div class="row"><span class="dot lv3"></span><span>≥ 80% (Lv 3)</span></div>
+      `;
+      return div;
+    };
+    legend.addTo(map);
+
+    // 4) 메인 로직
     async function main(){
-      // ★ 데모 편의: /app/frontend/data 폴더에 CSV 복사본을 둡니다.
+      // 정적 배포 편의를 위해 /app/frontend/data/ 아래에 CSV 복사해 두었음을 가정
       const locations = await readCSV('./data/locations_master.csv');
       const meas = await readCSV('./data/measurements.csv');
 
-      // 가장 최신 timestamp 찾기
+      // 최신 timestamp 구하기
       const latest = meas.reduce((a,b)=> a.timestamp > b.timestamp ? a : b).timestamp;
       const latestRows = meas.filter(r => r.timestamp === latest);
 
-      // location_id → occupancy_rate 맵
+      // location_id => occupancy_rate 매핑
       const rateMap = {};
-      latestRows.forEach(r => rateMap[r.location_id] = parseFloat(r.occupancy_rate));
+      const levelMap = {};
+      latestRows.forEach(r=>{
+        const rate = parseFloat(r.occupancy_rate || '0');
+        rateMap[r.location_id] = rate;
+        levelMap[r.location_id] = levelFromRate(rate);
+      });
 
-      // 마커 찍기
+      // 타입별 이모지(팝업용 가독성 ↑)
+      const TYPE_ICON = {
+        reading_room: '📖',
+        cafeteria: '🍴',
+        lecture: '🏫',
+        cafe: '☕',
+        study_zone: '🧑‍💻'
+      };
+
+      // 마커 렌더
       locations.forEach(loc=>{
         const lat = parseFloat(loc.lat), lon = parseFloat(loc.lon);
         if (isNaN(lat) || isNaN(lon)) return;
-        const rate = rateMap[loc.id] ?? 0;
-        const lv = levelFromRate(rate);
-        const color = COLORS[lv];
+
+        const id = loc.id;
+        const rate = rateMap[id] ?? 0;
+        const lv   = levelMap[id] ?? levelFromRate(rate);
+        const color= COLORS[lv];
 
         const marker = L.circleMarker([lat, lon], {
-          radius: 7, color, fillColor: color, fillOpacity: 0.9, weight: 1
+          radius: radiusFromRate(rate),
+          color, fillColor: color, fillOpacity: 0.9, weight: 1
         }).addTo(map);
 
-        marker.bindPopup(
-          `<b>${loc.name}</b><br/>type: ${loc.type}<br/>capacity: ${loc.capacity}<br/>` +
-          `now: ${(rate*100).toFixed(0)}% (level ${lv})<br/><small>${latest}</small>`
-        );
+        const icon = TYPE_ICON[loc.type] || '📍';
+        const badgeClass = `b${lv}`;
+        const pct = isFinite(rate) ? (rate*100).toFixed(0) : '–';
+
+        marker.bindPopup(`
+          <div style="min-width:220px">
+            <div style="font-weight:700;margin-bottom:4px;">${icon} ${loc.name}</div>
+            <div class="meta">type: ${loc.type}${loc.capacity ? ` · cap: ${loc.capacity}`:''}</div>
+            <div style="margin:8px 0;">
+              <span class="badge ${badgeClass}">now ${pct}% · Lv ${lv}</span>
+            </div>
+            <div class="meta">timestamp: ${latest}</div>
+          </div>
+        `);
+
+        // 마우스오버 툴팁(가볍게)
+        marker.bindTooltip(`${loc.name} — ${pct}% (Lv ${lv})`, {direction:'top'});
       });
     }
 
