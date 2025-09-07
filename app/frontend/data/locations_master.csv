@@ -1,5 +1,31 @@
-id,name,type,lat,lon,capacity
-LIB-1A,Reading Room 1F-A,reading_room,37.5008,127.0009,140
-CAF-MAIN,Main Cafeteria,cafeteria,37.5015,127.0001,300
-BLD-9-902,Building 9 Room 902,lecture,37.5023,126.9994,120
-
+id,name,type,lat,lon,capacity,floor
+LOC-001,Study_zone 1,study_zone,35.160608,129.065324,152,3
+LOC-002,Reading_room 2,reading_room,35.160459,129.065437,375,2
+LOC-003,Reading_room 3,reading_room,35.164229,129.064126,93,5
+LOC-004,Reading_room 4,reading_room,35.162442,129.065296,356,1
+LOC-005,Cafeteria 5,cafeteria,35.161569,129.067172,380,1
+LOC-006,Reading_room 6,reading_room,35.160807,129.063865,338,4
+LOC-007,Cafe 7,cafe,35.160989,129.065916,133,
+LOC-008,Study_zone 8,study_zone,35.164065,129.065090,328,6
+LOC-009,Cafeteria 9,cafeteria,35.163556,129.065270,213,
+LOC-010,Cafeteria 10,cafeteria,35.163594,129.067449,226,1
+LOC-011,Study_zone 11,study_zone,35.162687,129.067254,58,2
+LOC-012,Reading_room 12,reading_room,35.161322,129.064568,207,3
+LOC-013,Study_zone 13,study_zone,35.161344,129.067205,375,5
+LOC-014,Cafeteria 14,cafeteria,35.164006,129.066720,414,
+LOC-015,Cafe 15,cafe,35.160371,129.066393,97,1
+LOC-016,Lecture 16,lecture,35.161671,129.067511,240,4
+LOC-017,Reading_room 17,reading_room,35.163925,129.064733,319,6
+LOC-018,Study_zone 18,study_zone,35.162572,129.066119,468,1
+LOC-019,Lecture 19,lecture,35.161205,129.066374,121,2
+LOC-020,Cafe 20,cafe,35.163817,129.065115,367,
+LOC-021,Cafeteria 21,cafeteria,35.160973,129.066380,490,1
+LOC-022,Lecture 22,lecture,35.162232,129.064330,230,5
+LOC-023,Study_zone 23,study_zone,35.164209,129.066423,323,3
+LOC-024,Lecture 24,lecture,35.163233,129.066205,398,6
+LOC-025,Reading_room 25,reading_room,35.161063,129.065639,273,2
+LOC-026,Cafe 26,cafe,35.161825,129.067271,212,1
+LOC-027,Lecture 27,lecture,35.162781,129.064609,301,1
+LOC-028,Cafeteria 28,cafeteria,35.160997,129.064784,451,
+LOC-029,Reading_room 29,reading_room,35.163498,129.066845,63,3
+LOC-030,Study_zone 30,study_zone,35.161468,129.065372,414,4
