@@ -1,15 +1,21 @@
 <!doctype html>
-<html>
+<html lang="ko">
 <head>
   <meta charset="utf-8" />
   <title>Campus Crowd (Demo)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
   <style>
     :root{ --lv0:#2ecc71; --lv1:#f1c40f; --lv2:#e67e22; --lv3:#e74c3c; }
-    body{ margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    #topbar{ height:48px; display:flex; align-items:center; padding:0 12px; border-bottom:1px solid #eee; }
-    #topbar h3{ margin:0; font-size:16px; font-weight:600; }
-    #map{ height:calc(100vh - 48px); }
+    body{ margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, "Noto Color Emoji", "Apple Color Emoji", sans-serif; }
+    #topbar{ height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; border-bottom:1px solid #eee; }
+    #topbar h3{ margin:0; font-size:16px; font-weight:700; }
+    #controls{ display:flex; gap:8px; align-items:center; }
+    .btn{
+      height:32px; padding:0 12px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer;
+      font-size:13px;
+    }
+    .btn.active{ border-color:#888; background:#f8f8f8; }
+    #map{ height:calc(100vh - 56px); }
 
     /* 범례 스타일 */
     .legend{
@@ -32,7 +38,12 @@
 </head>
 <body>
   <div id="topbar">
-    <h3>Campus Crowd — 현재 혼잡도 지도</h3>
+    <h3>Campus Crowd — 혼잡도 지도</h3>
+    <div id="controls">
+      <span class="meta">보기:</span>
+      <button id="mode-now" class="btn active">현재</button>
+      <button id="mode-forecast" class="btn">+30분 예측</button>
+    </div>
   </div>
   <div id="map"></div>
 
@@ -42,7 +53,7 @@
     const map = L.map('map').setView([37.501, 127.0], 16);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
-    // 1) 색상/레벨 규칙
+    // 1) 색상/레벨 규칙(현재/예측 동일 스케일 유지)
     function levelFromRate(r){
       if (r < 0.3) return 0;
       if (r < 0.6) return 1;
@@ -50,28 +61,23 @@
       return 3;
     }
     const COLORS = ['#2ecc71','#f1c40f','#e67e22','#e74c3c'];
+    function radiusFromRate(r){ return 6 + Math.round(Math.max(0, Math.min(1, r)) * 8); } // 6~14px
 
-    // 혼잡비율에 따라 마커 크기(시각 가독성↑)
-    function radiusFromRate(r){
-      // 최소 6px, 최대 14px 정도
-      return 6 + Math.round(r * 8);
-    }
-
-    // 2) CSV 읽기(아주 단순 파서)
+    // 2) CSV 읽기(심플 파서; 이름에 쉼표 없는 전제)
     async function readCSV(path){
       const text = await fetch(path).then(r=>r.text());
-      const lines = text.trim().split(/\r?\n/);
+      const lines = text.trim().split(/\r?\n/).filter(Boolean);
       const cols = lines[0].split(',');
       return lines.slice(1).map(line=>{
-        // 쉼표가 이름에 들어가진 않는 전제(있으면 따옴표 처리 필요)
         const vals = line.split(',');
         const row = {};
         cols.forEach((c,i)=> row[c] = vals[i]);
         return row;
       });
     }
+    const safeGet = (o,k,def="") => (o && Object.prototype.hasOwnProperty.call(o,k) && o[k] !== undefined) ? o[k] : def;
 
-    // 3) 범례 추가
+    // 3) 범례
     const legend = L.control({position:'bottomright'});
     legend.onAdd = function(){
       const div = L.DomUtil.create('div','legend');
@@ -86,70 +92,143 @@
     };
     legend.addTo(map);
 
-    // 4) 메인 로직
+    // 4) 타입별 이모지(팝업용)
+    const TYPE_ICON = {
+      reading_room: '📖',
+      cafeteria: '🍴',
+      lecture: '🏫',
+      cafe: '☕',
+      study_zone: '🧑‍💻'
+    };
+
+    // 5) 간단 예측 로직(룰 기반; 데이터 없을 때도 동작)
+    // - 타입/시간대 기반으로 현재 비율에 소폭 가감 → 데모용
+    function forecastDelta(type, hour){
+      // hour: 0..23.5
+      // 기본 0 변화
+      let d = 0;
+      if (type === 'cafeteria'){
+        // 점심/저녁 피크 경향
+        if (hour >= 11 && hour < 14) d += 0.12;
+        if (hour >= 17.5 && hour < 19.5) d += 0.08;
+      } else if (type === 'reading_room' || type === 'study_zone'){
+        if (hour >= 12 && hour < 15) d += 0.07;    // 낮 피크
+        if (hour >= 18 && hour < 21) d += 0.06;    // 저녁 피크
+      } else if (type === 'lecture'){
+        // 정시 직전/직후 약간↑ (간단화)
+        d += 0.04;
+      } else if (type === 'cafe'){
+        if (hour >= 13 && hour < 17) d += 0.05;    // 오후 간식 시간대
+      }
+      return d;
+    }
+    const clamp01 = x => Math.max(0, Math.min(1, x));
+
+    // 6) 렌더 상태
+    let mode = 'now'; // 'now' | 'forecast'
+    const markers = new Map(); // id -> Leaflet layer
+
+    // 7) 데이터 로드 & 렌더
     async function main(){
-      // 정적 배포 편의를 위해 /app/frontend/data/ 아래에 CSV 복사해 두었음을 가정
       const locations = await readCSV('./data/locations_master.csv');
       const meas = await readCSV('./data/measurements.csv');
 
-      // 최신 timestamp 구하기
-      const latest = meas.reduce((a,b)=> a.timestamp > b.timestamp ? a : b).timestamp;
+      if (meas.length === 0){
+        console.warn('measurements.csv is empty');
+        return;
+      }
+
+      // 최신 timestamp
+      const latest = meas.reduce((a,b)=> a.timestamp > b.timestamp ? a : b, meas[0]).timestamp;
       const latestRows = meas.filter(r => r.timestamp === latest);
 
-      // location_id => occupancy_rate 매핑
-      const rateMap = {};
-      const levelMap = {};
+      // time info
+      const latestDate = new Date(latest.replace(' ', 'T'));
+      const hour = latestDate.getHours() + latestDate.getMinutes()/60;
+
+      // location_id -> now rate
+      const nowRate = {};
       latestRows.forEach(r=>{
         const rate = parseFloat(r.occupancy_rate || '0');
-        rateMap[r.location_id] = rate;
-        levelMap[r.location_id] = levelFromRate(rate);
+        nowRate[r.location_id] = isFinite(rate) ? rate : 0;
       });
 
-      // 타입별 이모지(팝업용 가독성 ↑)
-      const TYPE_ICON = {
-        reading_room: '📖',
-        cafeteria: '🍴',
-        lecture: '🏫',
-        cafe: '☕',
-        study_zone: '🧑‍💻'
-      };
+      // 초기 렌더
+      renderMarkers(locations, nowRate, hour, latest);
 
-      // 마커 렌더
-      locations.forEach(loc=>{
-        const lat = parseFloat(loc.lat), lon = parseFloat(loc.lon);
-        if (isNaN(lat) || isNaN(lon)) return;
-
-        const id = loc.id;
-        const rate = rateMap[id] ?? 0;
-        const lv   = levelMap[id] ?? levelFromRate(rate);
-        const color= COLORS[lv];
-
-        const marker = L.circleMarker([lat, lon], {
-          radius: radiusFromRate(rate),
-          color, fillColor: color, fillOpacity: 0.9, weight: 1
-        }).addTo(map);
-
-        const icon = TYPE_ICON[loc.type] || '📍';
-        const badgeClass = `b${lv}`;
-        const pct = isFinite(rate) ? (rate*100).toFixed(0) : '–';
-
-        marker.bindPopup(`
-          <div style="min-width:220px">
-            <div style="font-weight:700;margin-bottom:4px;">${icon} ${loc.name}</div>
-            <div class="meta">type: ${loc.type}${loc.capacity ? ` · cap: ${loc.capacity}`:''}</div>
-            <div style="margin:8px 0;">
-              <span class="badge ${badgeClass}">now ${pct}% · Lv ${lv}</span>
-            </div>
-            <div class="meta">timestamp: ${latest}</div>
-          </div>
-        `);
-
-        // 마우스오버 툴팁(가볍게)
-        marker.bindTooltip(`${loc.name} — ${pct}% (Lv ${lv})`, {direction:'top'});
+      // 토글 이벤트
+      document.getElementById('mode-now').addEventListener('click', ()=>{
+        mode = 'now';
+        setActiveBtn('now');
+        renderMarkers(locations, nowRate, hour, latest);
+      });
+      document.getElementById('mode-forecast').addEventListener('click', ()=>{
+        mode = 'forecast';
+        setActiveBtn('forecast');
+        renderMarkers(locations, nowRate, hour, latest);
       });
     }
 
-    main();
+    function setActiveBtn(which){
+      document.getElementById('mode-now').classList.toggle('active', which==='now');
+      document.getElementById('mode-forecast').classList.toggle('active', which==='forecast');
+    }
+
+    function renderMarkers(locations, nowRateMap, hour, latestTs){
+      // 기존 마커 제거/초기화
+      markers.forEach(m => map.removeLayer(m));
+      markers.clear();
+
+      locations.forEach(loc=>{
+        const lat = parseFloat(safeGet(loc,'lat'));
+        const lon = parseFloat(safeGet(loc,'lon'));
+        if (isNaN(lat) || isNaN(lon)) return;
+
+        const id = safeGet(loc,'id','');
+        const type = safeGet(loc,'type','');
+        const name = safeGet(loc,'name','(unknown)');
+        const cap  = safeGet(loc,'capacity','');
+        const floor= safeGet(loc,'floor',''); // 없으면 빈칸
+
+        // 현재 비율
+        const rNow = nowRateMap[id] ?? 0;
+
+        // 예측 비율(간단 룰 기반)
+        const delta = forecastDelta(type, hour);
+        const rForecast = clamp01(rNow + delta);
+
+        const r = (mode === 'forecast') ? rForecast : rNow;
+        const lv = levelFromRate(r);
+        const color = COLORS[lv];
+        const radius = radiusFromRate(r);
+
+        const marker = L.circleMarker([lat, lon], {
+          radius, color, fillColor: color, fillOpacity: 0.9, weight: 1
+        }).addTo(map);
+
+        const icon = TYPE_ICON[type] || '📍';
+        const badgeClass = `b${lv}`;
+        const pct = isFinite(r) ? (r*100).toFixed(0) : '–';
+        const floorLine = (floor !== undefined && String(floor).trim() !== '') ? `<br/>floor: ${floor}` : '';
+
+        marker.bindPopup(`
+          <div style="min-width:240px">
+            <div style="font-weight:700;margin-bottom:4px;">${icon} ${name}</div>
+            <div class="meta">type: ${type}${cap ? ` · cap: ${cap}`:''}${floorLine}</div>
+            <div style="margin:8px 0;">
+              <span class="badge ${badgeClass}">${mode === 'forecast' ? '+30m' : 'now'} ${pct}% · Lv ${lv}</span>
+            </div>
+            <div class="meta">timestamp: ${latestTs}</div>
+          </div>
+        `);
+
+        marker.bindTooltip(`${name} — ${pct}% (Lv ${lv})`, {direction:'top'});
+        markers.set(id, marker);
+      });
+    }
+
+    // 시작
+    main().catch(err => console.error(err));
   </script>
 </body>
 </html>
